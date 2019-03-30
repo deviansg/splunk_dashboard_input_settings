@@ -1,0 +1,97 @@
+<!-- load in the JavaScript file -->
+<form script="input_settings.js">
+  <!-- 
+  On dashboard init, set the check_settings token to true so we can immediately check if the dropdowns value has a configuration
+  This token is 'depended' on for the 'check_for_saved_settings_search' to run below
+  -->
+  <init>
+    <set token="check_settings">true</set>
+  </init>
+  <label>Demo</label>
+  <!-- This search saves the configuration to the KVstore. It depends on all the necessary tokens being set before running. -->
+  <search id="save_dashboard_settings_search" depends="$save_config$,$time_tok.earliest$,$time_tok.latest$,$car_model_tok$,$car_type_tok$,$car_color_tok$">
+    <!-- 
+    The search looks up the current values in the KVstore's lookup definition, appends our new values to the bottom, and uses makeresults to 
+    fake a new row result which adds a _time field. We set the saved_at to the _time (now), which we then use to sort the results newest to oldest, dedup them
+    which removes the oldest results ensuring no duplicate entries so it effectively 'updates' any pre-existing results, or appends a new result if a specific
+    'car_type' doesn't exist
+    -->
+    <query>
+    | inputlookup dashboard_input_settings | append [| makeresults | eval saved_at=_time | eval time_earliest="$time_tok.earliest$" | eval time_latest="$time_tok.latest$" | eval car_model="$car_model_tok$" | eval car_type="$car_type_tok$" | eval car_color="$car_color_tok$"] | fields - _time | sort 0 - saved_at | dedup car_type | outputlookup dashboard_input_settings
+    </query>
+  </search>
+  <!-- Check if the currently selected 'car_type' dropdown has a saved configuration in the KVstore. -->
+  <search id="check_for_saved_settings_search" depends="$car_type_tok$,$check_settings$">
+    <!-- 
+    The search checks to see if a specific 'car_type' selected in our dropdown exists in the KVstore. If it does, then ouput the necessary values for
+    that particular 'car_type' 
+    -->
+    <query>
+      | inputlookup dashboard_input_settings WHERE car_type="$car_type_tok$" | table car_model, car_color, time_earliest, time_latest
+    </query>
+    <!-- When the search is finalized, we check if a result is returned or not -->
+    <finalized>
+      <!-- If one result is returned, then set the necessary tokens -->
+      <condition match="'job.resultCount' == 1">
+        <set token="form.time_tok.earliest">$result.time_earliest$</set>
+        <set token="form.time_tok.latest">$result.time_latest$</set>
+        <!-- 'car_model_tok' is not set here as its a multi-valued field, which is handled in the JavaScript -->
+        <set token="form.car_color_tok">$result.car_color$</set>
+        <unset token="check_settings"></unset>
+      </condition>
+      <!-- 
+      If no results are returned that means we have no configuration defined for the 'car_type' dropdown so we will unset 
+      tokens and then set a default time for the timepicker
+      -->
+      <condition match="'job.resultCount' == 0">
+        <set token="form.time_tok.earliest">-24h</set>
+        <set token="form.time_tok.latest">now</set>
+        <unset token="form.car_model_tok"></unset>
+        <unset token="form.car_color_tok"></unset>
+        <unset token="check_settings"></unset>
+      </condition>
+    </finalized>
+  </search>
+  <!-- Input fields -->
+  <fieldset submitButton="false">
+    <input id="timepicker" type="time" token="time_tok" searchWhenChanged="true">
+      <label>Time Range</label>
+      <default>
+        <earliest>-24h@h</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="car_type_tok" searchWhenChanged="true">
+      <label>Car Type</label>
+      <choice value="ford">Ford</choice>
+      <choice value="chevy">Chevy</choice>
+      <choice value="honda">Honda</choice>
+      <choice value="toyota">Toyota</choice>
+      <choice value="tesla">Tesla</choice>
+      <change>
+        <set token="check_settings">true</set>
+      </change>
+    </input>
+    <input type="multiselect" token="car_model_tok" id="car_model_multiselect">
+      <label>Car Model</label>
+      <choice value="tahoe">Tahoe</choice>
+      <choice value="impala">Impala</choice>
+      <choice value="escape">Escape</choice>
+      <choice value="taurus">Taurus</choice>
+      <choice value="f150">F-150</choice>
+      <choice value="accord">Accord</choice>
+      <choice value="pilot">Pilot</choice>
+      <choice value="passport">Passport</choice>
+      <choice value="civic">Civic</choice>
+      <choice value="rav4">Rav4</choice>
+      <choice value="corolla">Corolla</choice>
+      <choice value="model3">Model3</choice>
+      <choice value="modelS">ModelS</choice>
+      <choice value="modelX">modelX</choice>
+      <delimiter> </delimiter>
+    </input>
+    <input type="text" token="car_color_tok">
+      <label>Car Color</label>
+    </input>
+  </fieldset>
+</form>
